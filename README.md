@@ -1,25 +1,33 @@
-# Compte Rendu du Projet Blockchain
+# Rapport sur le workshop de Blockchain
 
 ## Introduction
-Ce rapport présente une explication détaillée de l'architecture et du code d'un projet de blockchain. Le projet comprend plusieurs composants interconnectés, notamment des entités représentant les blocs et les transactions, des services pour gérer la chaîne de blocs et les transactions, ainsi qu'un contrôleur web pour interagir avec la blockchain via des requêtes HTTP.
+
+Ce projet implémente une blockchain simple avec des fonctionnalités de transaction, de minage et de validation de la chaîne. L'architecture du système est conçue en utilisant le framework Spring Boot, et le code est structuré en différentes couches pour améliorer la lisibilité et la maintenabilité.
 
 ## Architecture
 
-### Structure
-Le projet est organisé en plusieurs packages :
+L'architecture du projet se compose des composants suivants :
 
-- **entities** : Contient les classes représentant les entités principales de la blockchain, notamment `Block` et `Transaction`.
-- **service** : Contient les interfaces et les implémentations des services nécessaires pour gérer la blockchain et les transactions.
-- **web** : Contient les contrôleurs REST pour exposer les fonctionnalités de la blockchain via une API HTTP.
-- **utils** : Contient des classes utilitaires pour le hachage et le chiffrement symétrique.
+1. **Entities (Entités)** : Représentent les éléments de base de la blockchain, tels que les blocs et les transactions.
+2. **Services** : Contiennent la logique métier pour gérer la blockchain, les transactions et les portefeuilles.
+3. **Controllers** : Gèrent les requêtes HTTP et servent de point d'entrée pour les opérations de la blockchain.
+4. **Utils** : Fournissent des fonctions utilitaires telles que le hachage et le chiffrement.
 
-### Diagramme de Classes
-![Diagramme de Classes](class-diagram.png)
+### Détails du Code
 
-### Description des Classes et Interfaces
+#### Entities
 
-#### com.amarghad.ledger.entities.Block
+##### Block.java
 ```java
+package com.amarghad.ledger.entities;
+
+import com.amarghad.ledger.utils.HashUtil;
+import lombok.Builder;
+import lombok.Data;
+
+import java.time.Instant;
+import java.util.List;
+
 @Builder @Data
 public class Block {
     private int index;
@@ -49,10 +57,13 @@ public class Block {
     }
 }
 ```
-La classe `Block` représente un bloc dans la blockchain. Elle contient des attributs tels que l'index, le timestamp, le hash précédent, le hash actuel, la liste des transactions et le nonce. Elle possède des méthodes pour calculer le hash et valider le bloc.
 
-#### com.amarghad.ledger.entities.Transaction
+##### Transaction.java
 ```java
+package com.amarghad.ledger.entities;
+
+import lombok.*;
+
 @Builder @Data @AllArgsConstructor @NoArgsConstructor
 public class Transaction {
     private String sender;
@@ -61,10 +72,18 @@ public class Transaction {
     private String signature;
 }
 ```
-La classe `Transaction` représente une transaction avec des attributs pour l'expéditeur, le destinataire, le montant et la signature.
 
-#### com.amarghad.ledger.service.Blockchain
+#### Services
+
+##### Blockchain.java
 ```java
+package com.amarghad.ledger.service;
+
+import com.amarghad.ledger.entities.Block;
+import com.amarghad.ledger.entities.Transaction;
+
+import java.util.List;
+
 public interface Blockchain {
     Block addBlock(Block block);
     List<Block> getAllBlocks();
@@ -74,10 +93,53 @@ public interface Blockchain {
     void addTransaction(Transaction transaction);
 }
 ```
-L'interface `Blockchain` définit les méthodes pour ajouter un bloc, récupérer tous les blocs, valider la chaîne, miner un bloc, ajuster la difficulté et ajouter une transaction.
 
-#### com.amarghad.ledger.service.WithPoolBlockchain
+##### CollectionBasedTransactionPool.java
 ```java
+package com.amarghad.ledger.service;
+
+import com.amarghad.ledger.entities.Transaction;
+import lombok.Data;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Data @Service
+public class CollectionBasedTransactionPool implements TransactionPool {
+    private final List<Transaction> pendingTransactions = new ArrayList<>();
+
+    @Override
+    public void addTransaction(Transaction transaction) {
+        pendingTransactions.add(transaction);
+    }
+
+    @Override
+    public List<Transaction> getPendingTransactions() {
+        return pendingTransactions;
+    }
+
+    @Override
+    public void removeTransaction(Transaction transaction) {
+        pendingTransactions.remove(transaction);
+    }
+}
+```
+
+##### WithPoolBlockchain.java
+```java
+package com.amarghad.ledger.service;
+
+import com.amarghad.ledger.entities.Transaction;
+import com.amarghad.ledger.entities.Block;
+import lombok.Getter;
+import org.springframework.stereotype.Service;
+
+import java.security.InvalidParameterException;
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.util.List;
+
 @Getter @Service
 public class WithPoolBlockchain implements Blockchain {
     private final List<Block> chain;
@@ -125,9 +187,12 @@ public class WithPoolBlockchain implements Blockchain {
                 .transactions(transactionPool.getPendingTransactions())
                 .build();
 
+        block.setPreviousHash(getChain().getLast().getCurrentHash());
+
         var calculatedHash = block.calculateHash();
         int nonce = 0;
         String requiredPrefix = "0".repeat(difficulty);
+
         while (!calculatedHash.startsWith(requiredPrefix)) {
             nonce++;
             calculatedHash = block.calculateHash();
@@ -164,12 +229,10 @@ public class WithPoolBlockchain implements Blockchain {
         if (chain.size() < DIFFICULTY_ADJUSTMENT_INTERVAL + 1) {
             return;
         }
-
         Block oldBlock = chain.get(chain.size() - DIFFICULTY_ADJUSTMENT_INTERVAL - 1);
         Block newBlock = chain.get(chain.size() - 1);
         long timeTaken = newBlock.getTimestamp().toEpochMilli() - oldBlock.getTimestamp().toEpochMilli();
         double miningRate = (double) DIFFICULTY_ADJUSTMENT_INTERVAL / timeTaken;
-
         if (miningRate > 1) {
             difficulty += 1;
         } else {
@@ -188,16 +251,26 @@ public class WithPoolBlockchain implements Blockchain {
     }
 }
 ```
-La classe `WithPoolBlockchain` implémente l'interface `Blockchain` et gère les opérations sur la blockchain, comme l'ajout de blocs, la validation de la chaîne et l'ajustement de la difficulté.
 
-#### com.amarghad.ledger.web.BlockchainController
+#### Controllers
+
+##### BlockchainController.java
 ```java
+package com.amarghad.ledger.web;
+
+import com.amarghad.ledger.entities.*;
+import com.amarghad.ledger.service.Blockchain;
+import lombok.AllArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
 @RestController
 @RequestMapping("blockchain")
 @AllArgsConstructor
-@CrossOrigin("*")
 public class BlockchainController {
-
     private Blockchain blockchain;
 
     @GetMapping
@@ -205,108 +278,122 @@ public class BlockchainController {
         return blockchain.getAllBlocks();
     }
 
+    @PostMapping
+    public String addTransaction(@RequestBody Transaction transaction) {
+        blockchain.addTransaction(transaction);
+        return "Transaction added successfully.";
+    }
+
     @PostMapping("mine")
     public Block mineBlock() {
         return blockchain.mineBlock();
     }
 
-    @GetMapping("{index}")
+    @GetMapping("block/{index}")
     public Block getBlockByIndex(@PathVariable int index) {
         return blockchain.getAllBlocks().get(index);
     }
-
 
     @GetMapping("validate")
     public boolean validateChain() {
         return blockchain.validateChain();
     }
-
 }
 ```
 
-Le contrôleur `BlockchainController` expose les fonctionnalités de la blockchain via une API REST, permettant de récupérer la chaîne de blocs, d'ajouter des transactions, de miner des blocs et de valider la chaîne.
-
+##### TransactionController.java
 ```java
+package com.amarghad.ledger.web;
+
+import com.amarghad.ledger.entities.Transaction;
+import com.amarghad.ledger.service.Blockchain;
+import lombok.AllArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
 @RestController
 @RequestMapping("transactions")
 @AllArgsConstructor
 @CrossOrigin("*")
 public class TransactionController {
-
     private Blockchain blockchain;
+
+    @GetMapping("/pending")
+    public List<Transaction> getPendingTransactions() {
+        return blockchain.getTransactionPool().getPendingTransactions();
+    }
 
     @PostMapping
     public void addTransaction(@RequestBody Transaction transaction) {
         blockchain.addTransaction(transaction);
     }
-
 }
 ```
 
-#### com.amarghad.ledger.utils.HashUtil
+##### WalletController.java
 ```java
-public class HashUtil {
-    private HashUtil() { throw new IllegalAccessError("Invalid call to constructor"); }
+package com.amarghad.ledger.web;
 
-    public static String calculateSHA256(String data) {
+import com.amarghad.ledger.entities.Wallet;
+import com.amarghad.ledger.service.WalletService;
+import lombok.AllArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("wallet")
+@AllArgsConstructor
+@CrossOrigin("*")
+public class WalletController {
+    private WalletService walletService;
+
+    @PostMapping
+    public Wallet createWallet() {
+        try {
+            return walletService.createWallet();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @GetMapping
+    public Wallet getWallet()
+
+ {
+        return walletService.getWallet();
+    }
+}
+```
+
+#### Utils
+
+##### HashUtil.java
+```java
+package com.amarghad.ledger.utils;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+
+public class HashUtil {
+    public static String calculateSHA256(String input) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(data.getBytes());
-
+            byte[] hash = digest.digest(input.getBytes(StandardCharsets.UTF_8));
             StringBuilder hexString = new StringBuilder();
             for (byte b : hash) {
                 String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) {
-                    hexString.append('0');
-                }
+                if (hex.length() == 1) hexString.append('0');
                 hexString.append(hex);
             }
             return hexString.toString();
         } catch (NoSuchAlgorithmException e) {
-            e.printStackTrace();
+            throw new RuntimeException(e);
         }
-        return null;
     }
 }
 ```
-La classe `HashUtil` fournit une méthode utilitaire pour calculer le hash SHA-256 d'une chaîne de caractères.
 
-#### com.amarghad.ledger.utils.SymmetricEncryption
-```java
-import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
-import java.security.Key;
-import java.security.SecureRandom;
+## Conclusion
 
-public class SymmetricEncryption {
-    private SymmetricEncryption() { }
-
-    public static Key generateKey() throws Exception {
-        KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");
-        SecureRandom secureRandom = new SecureRandom();
-        keyGenerator.init(256, secureRandom);
-        return keyGenerator.generateKey();
-    }
-
-    public static byte[] encrypt(byte[] plainText, Key key) throws Exception {
-        Cipher cipher = Cipher.getInstance("AES");
-        cipher.init(Cipher.ENCRYPT_MODE, key);
-        return cipher.doFinal(plainText);
-    }
-
-    public static byte[] decrypt(byte[] encryptedText, Key key) throws Exception {
-        Cipher cipher = Cipher.getInstance("AES");
-        cipher.init(Cipher.DECRYPT_MODE, key);
-        return
-
- cipher.doFinal(encryptedText);
-    }
-}
-```
-La classe `SymmetricEncryption` fournit des méthodes pour générer des clés AES, chiffrer et déchiffrer des données.
-
-## Vidéo Démonstrative
-Pour voir une démonstration des fonctionnalités de cette blockchain, veuillez consulter la vidéo suivante :
-[Vidéo de Démonstration](https://example.com/video)
-
-Ce compte rendu fournit une vue d'ensemble complète de l'architecture et du code de notre projet de blockchain, avec des explications détaillées sur les composants principaux et leurs interactions. Si vous avez des questions ou des suggestions, n'hésitez pas à nous contacter.
+Ce projet de blockchain simple implémente les concepts fondamentaux d'une blockchain, y compris les transactions, le minage et la validation des blocs. L'architecture est conçue pour être modulaire et extensible, ce qui permet d'ajouter facilement de nouvelles fonctionnalités ou d'améliorer les fonctionnalités existantes. Le code est structuré de manière à être facilement compréhensible et maintenable, ce qui est essentiel pour tout projet logiciel complexe.
