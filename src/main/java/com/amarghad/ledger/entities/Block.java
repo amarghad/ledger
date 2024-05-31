@@ -9,7 +9,7 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 import java.util.List;
 
-@Builder @Data @AllArgsConstructor @NoArgsConstructor
+@Data
 public class Block {
     private int index;
     private Instant timestamp;
@@ -21,6 +21,7 @@ public class Block {
     public Block(int index, String previousHash, List<Transaction> transactions, int nonce) {
         this.index = index;
         this.timestamp = Instant.now();
+        System.out.println(this.timestamp);
         this.previousHash = previousHash;
         this.transactions = transactions;
         this.nonce = nonce;

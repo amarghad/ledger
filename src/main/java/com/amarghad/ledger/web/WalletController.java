@@ -1,5 +1,6 @@
 package com.amarghad.ledger.web;
 
+import com.amarghad.ledger.dtos.WalletDto;
 import com.amarghad.ledger.entities.Wallet;
 import com.amarghad.ledger.service.WalletService;
 import lombok.AllArgsConstructor;
@@ -13,17 +14,8 @@ public class WalletController {
 
     private WalletService walletService;
 
-    @PostMapping
-    public Wallet createWallet() {
-        try {
-            return walletService.createWallet();
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     @GetMapping
-    public Wallet getWallet() {
+    public WalletDto getWallet() {
         return walletService.getWallet();
     }
 

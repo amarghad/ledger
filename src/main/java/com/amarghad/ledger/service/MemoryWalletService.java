@@ -1,7 +1,10 @@
 package com.amarghad.ledger.service;
 
+import com.amarghad.ledger.dtos.WalletDto;
 import com.amarghad.ledger.entities.Wallet;
+import com.amarghad.ledger.mappers.WalletMapper;
 import com.amarghad.ledger.utils.KeyPairUtil;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.security.KeyPair;
@@ -10,28 +13,28 @@ import java.util.UUID;
 @Service
 public class MemoryWalletService implements WalletService {
 
-    private Wallet wallet;
+    private Wallet wallet = null;
+    @Autowired
+    private WalletMapper walletMapper;
 
-    @Override
-    public Wallet createWallet() throws Exception {
-        if (wallet != null) {
-            throw new Exception("Cannot create double wallet on the node");
-        }
+    private void createWallet() {
+
         KeyPair pair = KeyPairUtil.generateKeyPair();
         String address = UUID.randomUUID().toString();
-        Wallet w = Wallet.builder()
+        this.wallet = Wallet.builder()
                 .publicKey(pair.getPublic())
                 .privateKey(pair.getPrivate())
                 .balance(4)
                 .address(address)
                 .build();
-        this.wallet = w;
-        return w;
 
     }
 
     @Override
-    public Wallet getWallet() {
-        return wallet;
+    public WalletDto getWallet() {
+        if (wallet == null) {
+            createWallet();
+        }
+        return walletMapper.toDto(wallet);
     }
 }

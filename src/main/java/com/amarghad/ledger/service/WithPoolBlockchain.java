@@ -2,7 +2,9 @@ package com.amarghad.ledger.service;
 
 import com.amarghad.ledger.entities.Transaction;
 import com.amarghad.ledger.entities.Block;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.security.InvalidParameterException;
@@ -15,6 +17,7 @@ public class WithPoolBlockchain implements Blockchain {
 
     private final List<Block> chain;
 
+    @Autowired
     private TransactionPool transactionPool;
 
     private int difficulty = 10;
@@ -64,11 +67,12 @@ public class WithPoolBlockchain implements Blockchain {
     @Override
     public Block mineBlock() {
 
-        Block block = Block.builder()
-                .index(getChain().size())
-                .previousHash(getChain().getLast().getCurrentHash())
-                .transactions(transactionPool.getPendingTransactions())
-                .build();
+        Block block = new Block(
+                getChain().size(),
+                getChain().getLast().getCurrentHash(),
+                transactionPool.getPendingTransactions(),
+                0
+        );
 
         block.setPreviousHash(getChain().getLast().getCurrentHash());
 
